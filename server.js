@@ -12,8 +12,8 @@ app.use(express.json());
 // ============================================
 const EMAIL_CONFIG = {
     service: 'gmail',
-    user: 'dhanushyathangavel5642@gmail.com',      // ← CHANGE THIS
-    pass: 'jwbc huwn bzhb upjk',          // ← CHANGE THIS (16-char App Password)
+    user: process.env.EMAIL_USER,
+pass: process.env.EMAIL_PASS,         // ← CHANGE THIS (16-char App Password)
 };
 
 // Create email transporter
