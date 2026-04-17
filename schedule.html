@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Schedules - Work Tracker</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>AI Generated Schedules</h1>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <button class="btn-back" onclick="window.location.href='index.html'">← Back to Tasks</button>
+                <span id="userDisplay"></span>
+                <button id="themeToggle">🌙</button>
+                <button class="logout-btn" onclick="logout()">Logout</button>
+            </div>
+        </header>
+
+        <div id="scheduleList" class="schedule-list"></div>
+        
+        <div id="matrixView" class="matrix-view" style="display: none;">
+            <button class="btn-back" onclick="backToScheduleList()">← Back to Schedules</button>
+            <h3>Eisenhower Matrix Representation</h3>
+            <div class="eisenhower-matrix">
+                <div class="matrix-quadrant urgent-important">
+                    <h4>Urgent & Important</h4>
+                    <p class="quadrant-desc">Do First</p>
+                    <div id="q1"></div>
+                </div>
+                <div class="matrix-quadrant not-urgent-important">
+                    <h4>Not Urgent & Important</h4>
+                    <p class="quadrant-desc">Schedule</p>
+                    <div id="q2"></div>
+                </div>
+                <div class="matrix-quadrant urgent-not-important">
+                    <h4>Urgent & Not Important</h4>
+                    <p class="quadrant-desc">Delegate</p>
+                    <div id="q3"></div>
+                </div>
+                <div class="matrix-quadrant not-urgent-not-important">
+                    <h4>Not Urgent & Not Important</h4>
+                    <p class="quadrant-desc">Eliminate</p>
+                    <div id="q4"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="schedule.js"></script>
+</body>
+</html>

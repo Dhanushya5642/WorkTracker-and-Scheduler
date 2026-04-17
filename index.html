@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Work Tracker</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Work Tracker</h1>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <button class="ai-schedule-btn" onclick="window.location.href='schedule.html'">AI Schedule</button>
+                <span id="userDisplay"></span>
+                <button id="themeToggle">🌙</button>
+                <button class="logout-btn" onclick="logout()">Logout</button>
+            </div>
+        </header>
+
+        <div class="stats">
+            <div class="stat-card">
+                <h3 id="totalTasks">0</h3>
+                <p>Total Tasks</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="pendingTasks">0</h3>
+                <p>Pending</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="completedTasks">0</h3>
+                <p>Completed</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="upcomingDeadlines">0</h3>
+                <p>Due Soon</p>
+            </div>
+        </div>
+
+        <div class="add-task-section">
+            <h2>Add New Task</h2>
+            <form id="taskForm">
+                <select id="taskCategory" required>
+                    <option value="general">General Task</option>
+                    <option value="college">College & Assignment</option>
+                    <option value="investment">Investment</option>
+                    <option value="birthday">Birthday & Event</option>
+                </select>
+                <input type="text" id="taskTitle" placeholder="Task title (e.g. Activity, Assignment, Person's Name)" required>
+                <input type="text" id="taskProject" placeholder="Related Project/Subject">
+                <textarea id="taskDesc" placeholder="Description" rows="2"></textarea>
+                
+                <!-- Dynamic Fields for Categories -->
+                <div id="dynamicFieldsContainer" style="display: none; width: 100%; gap: 10px; flex-direction: column;"></div>
+
+                <div style="display: flex; gap: 10px; width: 100%;">
+                    <input type="datetime-local" id="taskDeadline" required style="flex: 1;">
+                    <select id="taskPriority" style="flex: 1;">
+                        <option value="low">Low Priority</option>
+                        <option value="medium" selected>Medium Priority</option>
+                        <option value="high">High Priority</option>
+                    </select>
+                </div>
+                <button type="submit">Add Task</button>
+            </form>
+        </div>
+
+        <div class="filter-section">
+            <input type="text" id="searchInput" placeholder="Search tasks...">
+            <select id="filterCategory">
+                <option value="all">All Categories</option>
+                <option value="general">General</option>
+                <option value="college">College</option>
+                <option value="investment">Investment</option>
+                <option value="birthday">Birthday</option>
+            </select>
+            <select id="filterStatus">
+                <option value="all">All Status</option>
+                <option value="todo">To Do</option>
+                <option value="inprogress">In Progress</option>
+                <option value="completed">Completed</option>
+            </select>
+            <select id="filterPriority">
+                <option value="all">All Priority</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+            </select>
+        </div>
+
+        <div class="tasks-container" id="tasksContainer"></div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
