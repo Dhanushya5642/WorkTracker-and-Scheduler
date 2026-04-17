@@ -1,224 +1,240 @@
+require('dotenv').config();
 const express = require('express');
+const mongoose = require('mongoose');
 const nodemailer = require('nodemailer');
 const cors = require('cors');
 const cron = require('node-cron');
+const path = require('path');
+
+const User = require('./models/User');
+const Task = require('./models/Task');
+const Schedule = require('./models/Schedule');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ============================================
-// CONFIGURE YOUR EMAIL HERE
-// ============================================
+// ==============================
+// MONGODB CONNECTION
+// ==============================
+mongoose.connect('mongodb://127.0.0.1:27017/worktracker')
+    .then(() => console.log('✅ Connected to MongoDB'))
+    .catch(err => console.error('❌ MongoDB connection error:', err));
+
+// ==============================
+// SERVE FRONTEND
+// ==============================
+app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// ==============================
+// API ROUTES
+// ==============================
+
+// User Signup
+app.post('/api/auth/signup', async (req, res) => {
+    try {
+        const { username, email, password } = req.body;
+        const existingUser = await User.findOne({ username });
+        if (existingUser) return res.status(400).json({ error: 'Username already exists' });
+
+        const newUser = new User({ username, email, password });
+        await newUser.save();
+        res.json({ success: true, message: 'Account created' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// User Login
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        const user = await User.findOne({ username, password });
+        if (!user) return res.status(401).json({ error: 'Invalid username or password' });
+        
+        // Return userId to store on frontend for future requests
+        res.json({ success: true, userId: user._id, username: user.username });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get all tasks for user
+app.get('/api/tasks/:userId', async (req, res) => {
+    try {
+        const tasks = await Task.find({ userId: req.params.userId }).sort({ deadline: 1 });
+        res.json(tasks);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Create task
+app.post('/api/tasks', async (req, res) => {
+    try {
+        const newTask = new Task(req.body);
+        await newTask.save();
+        res.json(newTask);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Update task status / details
+app.put('/api/tasks/:id', async (req, res) => {
+    try {
+        const updatedTask = await Task.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        res.json(updatedTask);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Delete task
+app.delete('/api/tasks/:id', async (req, res) => {
+    try {
+        await Task.findByIdAndDelete(req.params.id);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Get schedules for user
+app.get('/api/schedules/:userId', async (req, res) => {
+    try {
+        const schedules = await Schedule.find({ userId: req.params.userId }).sort({ createdAt: -1 });
+        res.json(schedules);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Create schedule
+app.post('/api/schedules', async (req, res) => {
+    try {
+        const newSchedule = new Schedule(req.body);
+        await newSchedule.save();
+        res.json(newSchedule);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Delete schedule
+app.delete('/api/schedules/:id', async (req, res) => {
+    try {
+        await Schedule.findByIdAndDelete(req.params.id);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ==============================
+// EMAIL CONFIG & CRON
+// ==============================
 const EMAIL_CONFIG = {
     service: 'gmail',
     user: process.env.EMAIL_USER,
-pass: process.env.EMAIL_PASS,         // ← CHANGE THIS (16-char App Password)
+    pass: process.env.EMAIL_PASS,
 };
 
-// Create email transporter
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 587,
-    secure: false,
-    auth: {
-        user: EMAIL_CONFIG.user,
-        pass: EMAIL_CONFIG.pass
-    },
+    secure: false, // true for 465, false for other ports
+    auth: { user: EMAIL_CONFIG.user, pass: EMAIL_CONFIG.pass },
     tls: {
         rejectUnauthorized: false
     }
 });
 
-// Verify email configuration on startup
-transporter.verify((error, success) => {
-    if (error) {
-        console.error('Email configuration error:', error.message);
-        console.log('\nPlease check:');
-        console.log('1. Email and password are correct in EMAIL_CONFIG');
-        console.log('2. Using App Password (not regular password)');
-        console.log('3. 2-Factor Authentication is enabled on Gmail');
-    } else {
-        console.log('Email server is ready to send emails');
-    }
+transporter.verify((error) => {
+    if (error) console.error('❌ Email config error:', error.message);
+    else console.log('✅ Email server ready');
 });
 
-// Store user tasks and sent notifications
-let userTasks = {};
 let sentNotifications = new Set();
 
-// Sync tasks endpoint
-app.post('/api/sync-tasks', (req, res) => {
-    const { username, email, tasks } = req.body;
-    userTasks[username] = { email, tasks };
-    console.log(`Tasks synced for ${username}: ${tasks.length} tasks`);
-    res.json({ success: true });
-});
-
-// Check deadlines and send emails
-function checkAndSendEmails() {
-    console.log('Checking deadlines...');
+async function checkAndSendEmails() {
     const now = new Date();
-    let emailsSent = 0;
     
-    Object.entries(userTasks).forEach(([username, data]) => {
-        const { email, tasks } = data;
+    try {
+        // Find tasks due soon
+        const tasks = await Task.find({ status: { $ne: 'completed' } }).populate('userId');
         
         tasks.forEach(task => {
-            if (task.status === 'completed') return;
-            
             const deadline = new Date(task.deadline);
             const minutesUntil = (deadline - now) / (1000 * 60);
-            const hoursUntil = minutesUntil / 60;
-            
-            let timeMessage = '';
-            let urgencyLevel = '';
-            let notificationKey = '';
-            
-            // Determine time-based notifications
-            if (minutesUntil <= 10 && minutesUntil > 0) {
-                timeMessage = `Only ${Math.floor(minutesUntil)} minutes left`;
-                urgencyLevel = 'URGENT';
-                notificationKey = `${task.id}-10min`;
-            } else if (minutesUntil <= 30 && minutesUntil > 10) {
-                timeMessage = `Only 30 minutes left`;
-                urgencyLevel = 'URGENT';
-                notificationKey = `${task.id}-30min`;
-            } else if (hoursUntil <= 1 && hoursUntil > 0.5) {
-                timeMessage = `Only 1 hour left`;
-                urgencyLevel = 'Important';
-                notificationKey = `${task.id}-1hour`;
-            } else if (hoursUntil <= 3 && hoursUntil > 1) {
-                timeMessage = `Only 3 hours left`;
-                urgencyLevel = 'Reminder';
-                notificationKey = `${task.id}-3hours`;
-            } else if (hoursUntil <= 24 && hoursUntil > 23) {
-                timeMessage = `1 day left`;
-                urgencyLevel = 'Reminder';
-                notificationKey = `${task.id}-1day`;
-            }
-            
-            // Send email if time threshold met and not already sent
-            if (timeMessage && !sentNotifications.has(notificationKey)) {
-                const priorityEmoji = task.priority === 'high' ? '🔴' : task.priority === 'medium' ? '🟡' : '🟢';
+
+            if (minutesUntil > 0 && task.userId && task.userId.email) {
+                const priority = task.priority || 'medium';
                 
-                const taskCat = task.category || 'general';
-                let subject = `${urgencyLevel} - ${timeMessage} for "${task.title}"`;
-                let headerEmoji = '📋';
-                let alertColor = '#1976d2';
-                let alertMsg = "⚡ Don't forget to complete it on time!";
+                // Define thresholds
+                const thresholds = [
+                    { label: '2 hours', minutes: 120 },
+                    { label: '1 hour', minutes: 60 },
+                    { label: '40 minutes', minutes: 40 },
+                    { label: '30 minutes', minutes: 30 },
+                    { label: '20 minutes', minutes: 20 },
+                    { label: '10 minutes', minutes: 10 },
+                    { label: '5 minutes', minutes: 5 },
+                    { label: '2 minutes', minutes: 2 },
+                    { label: '1 minute', minutes: 1 }
+                ];
 
-                if (taskCat === 'birthday') {
-                    subject = `🎉 Birthday Reminder: ${task.title} is coming up in ${timeMessage}!`;
-                    headerEmoji = '🎂';
-                    alertColor = '#ed64a6';
-                    alertMsg = `🎉 Make sure you're ready to ${task.metadata?.action || 'celebrate'}!`;
-                } else if (taskCat === 'college') {
-                    subject = `📚 Academic Alert: ${timeMessage} for ${task.title}`;
-                    headerEmoji = '📚';
-                    alertColor = '#667eea';
-                    alertMsg = `📖 Almost due! Keep pushing!`;
-                } else if (taskCat === 'investment') {
-                    subject = `📈 Financial Reminder: ${timeMessage} for ${task.title}`;
-                    headerEmoji = '💰';
-                    alertColor = '#38b2ac';
-                    alertMsg = `📈 Secure your finances! action needed.`;
-                }
+                thresholds.forEach(threshold => {
+                    // Check if we have passed the threshold (and haven't sent the email yet)
+                    if (minutesUntil <= threshold.minutes && minutesUntil > 0) {
+                        const key = `${task._id}-${threshold.label}`;
 
-                let extraMetadata = '';
-                if (taskCat === 'college' && task.metadata) {
-                    extraMetadata = `
-                        <tr>
-                            <td style="padding: 10px; background: #f8f9fa;"><strong>Course:</strong></td>
-                            <td style="padding: 10px;">${task.metadata.course}</td>
-                        </tr>
-                    `;
-                } else if (taskCat === 'investment' && task.metadata) {
-                    extraMetadata = `
-                        <tr>
-                            <td style="padding: 10px; background: #f8f9fa;"><strong>Amount:</strong></td>
-                            <td style="padding: 10px;">₹${task.metadata.amount}</td>
-                        </tr>
-                    `;
-                }
+                        if (!sentNotifications.has(key)) {
+                            const mailOptions = {
+                                from: EMAIL_CONFIG.user,
+                                to: task.userId.email,
+                                subject: `⏰ [${priority.toUpperCase()}] Reminder: ${task.title}`,
+                                html: `
+                                    <h2>Task Reminder</h2>
+                                    <p><b>${task.title}</b> is due in ${threshold.label}!</p>
+                                    <p>Priority: <b>${priority.toUpperCase()}</b></p>
+                                    <p>Deadline: ${deadline.toLocaleString()}</p>
+                                `
+                            };
 
-                const mailOptions = {
-                    from: EMAIL_CONFIG.user,
-                    to: email,
-                    subject: subject,
-                    html: `
-                        <div style="font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5;">
-                            <div style="background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-                                <h2 style="color: #d32f2f; margin-top: 0;">${urgencyLevel}</h2>
-                                <h1 style="color: #333; font-size: 24px;">${timeMessage} for this due!</h1>
-                                
-                                <div style="background: #fff3cd; padding: 15px; border-left: 4px solid #ffc107; margin: 20px 0;">
-                                    <h3 style="margin: 0; color: #856404;">${headerEmoji} ${task.title}</h3>
-                                </div>
-                                
-                                <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
-                                    <tr>
-                                        <td style="padding: 10px; background: #f8f9fa; width: 30%;"><strong>Category:</strong></td>
-                                        <td style="padding: 10px;">${taskCat.toUpperCase()}</td>
-                                    </tr>
-                                    ${extraMetadata}
-                                    <tr>
-                                        <td style="padding: 10px; background: #f8f9fa;"><strong>Priority:</strong></td>
-                                        <td style="padding: 10px;">${priorityEmoji} ${task.priority.toUpperCase()}</td>
-                                    </tr>
-                                    <tr>
-                                        <td style="padding: 10px; background: #f8f9fa;"><strong>Deadline:</strong></td>
-                                        <td style="padding: 10px; color: #d32f2f; font-weight: bold;">${deadline.toLocaleString()}</td>
-                                    </tr>
-                                </table>
-                                
-                                ${task.description ? `<p style="color: #666; margin: 20px 0;"><strong>Description:</strong><br>${task.description}</p>` : ''}
-                                
-                                <div style="background: #e3f2fd; padding: 15px; border-radius: 5px; margin-top: 20px;">
-                                    <p style="margin: 0; color: ${alertColor};"><b>${alertMsg}</b></p>
-                                </div>
-                            </div>
-                        </div>
-                    `
-                };
-                
-                transporter.sendMail(mailOptions, (error, info) => {
-                    if (error) {
-                        console.log('Error sending email:', error.message);
-                    } else {
-                        console.log(`Email sent to ${email}: ${timeMessage} - ${task.title}`);
-                        sentNotifications.add(notificationKey);
-                        emailsSent++;
+                            transporter.sendMail(mailOptions, (err) => {
+                                if (err) {
+                                    console.log('❌ Email error:', err.message);
+                                } else {
+                                    console.log('📧 Email sent to', task.userId.email, 'for', threshold.label);
+                                    sentNotifications.add(key);
+                                }
+                            });
+                        }
                     }
                 });
             }
         });
-    });
-    
-    if (emailsSent === 0) {
-        console.log('No emails to send at this time');
+    } catch (err) {
+        console.error('Error checking emails:', err);
     }
 }
 
-// Run every 5 minutes for testing
-cron.schedule('*/5 * * * *', () => {
-    console.log('\nRunning 5-minute deadline check...');
+cron.schedule('* * * * *', () => {
+    console.log('⏳ Checking deadlines from MongoDB...');
     checkAndSendEmails();
 });
 
-// Run every hour
-cron.schedule('0 * * * *', () => {
-    console.log('\nRunning hourly deadline check...');
-    checkAndSendEmails();
-});
-
-const PORT = 3000;
+// ==============================
+// START SERVER
+// ==============================
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log('\n' + '='.repeat(50));
-    console.log('Email notification server running on port ' + PORT);
-    console.log('Email checks run every 5 minutes (testing) and every hour');
-    console.log('='.repeat(50));
-    console.log('\nIMPORTANT: Configure your email in EMAIL_CONFIG');
-    console.log(`Current email: ${EMAIL_CONFIG.user}`);
-    console.log('\nWaiting for requests...\n');
+    console.log('===================================');
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log('===================================');
 });
